@@ -2,21 +2,22 @@ import { Module, Logger } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
-import { UsersModule } from './users/users.module';
-import { AccountsModule } from './accounts/accounts.module';
 import { PrismaModule, loggingMiddleware } from 'nestjs-prisma';
 import { EventEmitterModule } from '@nestjs/event-emitter';
-import { ConfigModule } from '@nestjs/config';
-import { LocksModule } from './locks/locks.module';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { DomainModule } from './domain/domain.module';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { MailerModule } from '@nestjs-modules/mailer';
+import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handlebars.adapter';
+import { join } from 'path';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true, cache: true }),
     PrismaModule.forRoot({
       isGlobal: true,
       prismaServiceOptions: {
         middlewares: [
-          // configure your prisma middleware
           loggingMiddleware({
             logger: new Logger('PrismaMiddleware'),
             logLevel: 'log',
@@ -24,13 +25,41 @@ import { LocksModule } from './locks/locks.module';
         ],
       },
     }),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000,
+        limit: 5,
+      },
+    ]),
+    MailerModule.forRootAsync({
+      useFactory: (configService: ConfigService) => ({
+        transport: {
+          host: configService.get<string>('MAILER_HOST'),
+          port: Number(configService.get('MAILER_PORT')),
+          secure: false,
+          auth: {
+            user: configService.get('MAILER_USERNAME'),
+            pass: configService.get('MAILER_PASSWORD'),
+          },
+        },
+        defaults: {
+          from: configService.get('MAILER_FROM_MAIL'),
+        },
+        template: {
+          dir: join(process.cwd(), '/src/common/templates'),
+          adapter: new HandlebarsAdapter(),
+          options: {
+            strict: true,
+          },
+        },
+      }),
+      inject: [ConfigService],
+    }),
     EventEmitterModule.forRoot(),
     AuthModule,
-    UsersModule,
-    AccountsModule,
-    LocksModule,
+    DomainModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule { }
+export class AppModule {}

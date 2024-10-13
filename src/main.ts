@@ -1,14 +1,32 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
+import { AllExceptionFilter } from './common/filters/exception.filter';
+import { ConfigService } from '@nestjs/config';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  const configService = app.get(ConfigService);
+  const logger = new Logger('NestApplication');
+
+  // middlewares
+  app.enableCors();
+
+  //filter
+  app.useGlobalFilters(new AllExceptionFilter());
+
+  app.useGlobalPipes(
+    new ValidationPipe({
+      transform: true,
+      whitelist: true,
+    }),
+  );
+
   const config = new DocumentBuilder()
     .setTitle('Pegasus')
-    .setDescription('The Pegasus API description')
+    .setDescription('The Pegasus API Documentation')
     .setVersion('1.0')
     .addTag('users')
     .addBearerAuth({
@@ -19,17 +37,14 @@ async function bootstrap() {
     })
     .build();
 
-  app.useGlobalPipes(
-    new ValidationPipe({
-      transform: true,
-      whitelist: true,
-    }),
-  );
-
   const document = SwaggerModule.createDocument(app, config);
 
   SwaggerModule.setup('api-docs', app, document);
 
-  await app.listen(3000);
+  const port = configService.get<number>('PORT');
+
+  await app.listen(port);
+  logger.log(`Nest Application running on port ${port}`);
 }
+
 bootstrap();

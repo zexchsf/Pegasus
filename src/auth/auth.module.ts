@@ -2,10 +2,13 @@ import { Module } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtModule } from '@nestjs/jwt';
-import { AuthHelper } from './auth.helper';
-import { JwtStrategy } from './jwt.strategy';
-import { UsersService } from '../users/users.service';
-import { LocksService } from '../locks/locks.service';
+import { JwtStrategy } from './auth-strategy/jwt.strategy';
+import { UsersService } from '../domain/users/users.service';
+import { BcryptHelper } from '../common/helpers/bcrypt.helper';
+import { RefreshTokenService } from '../domain/refresh-token/refresh-token.service';
+import { LoginAttemptService } from '../domain/login-attempt/login-attempt.service';
+import { MailService } from '../common/services/mail.service';
+import { UserMapper } from '../common/mappers/user.mapper';
 
 @Module({
   imports: [
@@ -19,11 +22,14 @@ import { LocksService } from '../locks/locks.service';
   controllers: [AuthController],
   providers: [
     AuthService,
-    AuthHelper,
     JwtStrategy,
     UsersService,
-    LocksService
+    BcryptHelper,
+    RefreshTokenService,
+    LoginAttemptService,
+    MailService,
+    UserMapper,
   ],
-  exports: [AuthService, AuthHelper, UsersService],
+  exports: [AuthService, UsersService],
 })
-export class AuthModule { }
+export class AuthModule {}

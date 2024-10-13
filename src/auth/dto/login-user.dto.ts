@@ -10,3 +10,4 @@ export class LoginUserDto {
   @IsString()
   password: string;
 }
+

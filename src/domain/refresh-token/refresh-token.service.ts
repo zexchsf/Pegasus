@@ -1,0 +1,32 @@
+import { Injectable } from '@nestjs/common';
+import dayjs from '../../common/helpers/dayjs';
+import { PrismaService } from 'nestjs-prisma';
+import { REFRESH_TOKEN_EXPIRY_TIME } from '../../common/constants';
+
+@Injectable()
+export class RefreshTokenService {
+  constructor(private readonly prismaService: PrismaService) {}
+
+  async storeRefreshToken(userId: string, token: string) {
+    return this.prismaService.refreshToken.create({
+      data: {
+        userId,
+        token,
+        expires_at: dayjs(new Date())
+          .add(REFRESH_TOKEN_EXPIRY_TIME)
+          .toISOString(),
+      },
+    });
+  }
+
+  async findByToken(token: string) {
+    return this.prismaService.refreshToken.findFirst({
+      where: {
+        token,
+      },
+      include: {
+        user: true,
+      },
+    });
+  }
+}

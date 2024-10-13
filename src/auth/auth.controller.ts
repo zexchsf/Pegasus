@@ -6,118 +6,94 @@ import {
   HttpStatus,
   HttpCode,
   Logger,
- 
+  UseGuards,
+  Ip,
+  Headers,
+  Param,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import {
   ApiBadRequestResponse,
-  ApiBody,
   ApiCreatedResponse,
   ApiOkResponse,
+  ApiOperation,
   ApiTags,
+  ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 import { LoginUserDto } from './dto/login-user.dto';
 import { RegisterUserDto } from './dto/register-user.dto';
-import { UsersService } from '../users/users.service';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { ACCOUNTS_EVENTS } from '../accounts/accounts.type';
-import { LocksService } from '../locks/locks.service';
+import { UsersService } from '../domain/users/users.service';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { ThrottlerGuard } from '@nestjs/throttler';
+import { DefaultException } from '../common/dto/default.exception.dto';
 
-@ApiTags('auth')
+@ApiTags('Auth')
 @Controller('auth')
+@UseGuards(ThrottlerGuard)
 export class AuthController {
-  private logger = new Logger(AuthController.name)
+  private logger = new Logger(AuthController.name);
+
   constructor(
     private readonly authService: AuthService,
     private readonly usersService: UsersService,
-    private readonly locksService: LocksService,
-    private eventEmitter: EventEmitter2,
-  ) { }
+  ) {}
 
   @Post('/register')
   @HttpCode(HttpStatus.CREATED)
-  @ApiBody({ type: RegisterUserDto })
-  @ApiBadRequestResponse({ description: 'Bad request - invalid credentials' })
-  @ApiCreatedResponse({ description: 'The user account has been created' })
+  @ApiOperation({ summary: 'User Register' })
+  @ApiUnprocessableEntityResponse({
+    type: DefaultException,
+    description: 'invalid credentials',
+  })
+  @ApiCreatedResponse({ description: 'User account created' })
   async register(@Body() body: RegisterUserDto) {
-    const existingUser = await this.usersService.findByEmail(body.email);
-
-    if (existingUser) {
-      throw new BadRequestException(
-        'The provided email address is already in use',
-      );
-    }
-
-    const { accountType, ...rest } = body;
-
-    const user = await this.authService.createUser(rest);
-
-    this.eventEmitter.emit(ACCOUNTS_EVENTS.CREATE_ACCOUNT, {
-      userId: user.id,
-      accountType,
-    });
-
-    return { message: 'user account create successfully' };
+    this.logger.log(`Attempting to register user with email: ${body.email}`);
+    const user = await this.authService.registerUser(body);
+    this.logger.log(`user registered successfully, ${user.id}`);
+    return { message: 'user account created successfully', data: user };
   }
 
   @Post('/login')
-  @ApiBody({ type: LoginUserDto })
-  @ApiBadRequestResponse({ description: 'Bad request - invalid credentials' })
-  @ApiOkResponse({ description: 'user logged in successfully' })
-  async login(@Body() body: LoginUserDto) {
-    const user = await this.usersService.findByEmail(body.email);
-    if (!user) {
-      throw new BadRequestException(
-        "User with the provided email doesn't exist",
-      );
-    }
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'User Login' })
+  @ApiBadRequestResponse({
+    type: DefaultException,
+  })
+  @ApiOkResponse({})
+  async login(
+    @Body() body: LoginUserDto,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string,
+  ) {
+    this.logger.log(`attempting to login user with email: ${body.email}`);
+    const data = await this.authService.loginUser(body, ip, userAgent);
+    this.logger.log(`user logged in successfully, ${data.user.id} `);
+    return { message: 'user logged in successfully', data };
+  }
 
-    const existingLock = await this.locksService.checkActiveUserLock(user.id);
-    this.logger.log("acive lock", existingLock)
-    const now = new Date();
-    if (existingLock && existingLock.unlockAt > now) {
-      throw new BadRequestException(
-        'Account is currently locked. Please try again shortly.',
-      );
-    }
+  @Post('/verify-user/:token')
+  @HttpCode(HttpStatus.OK)
+  async verifyUser(@Param('token') token: string) {
+    this.logger.log('attempting to verify user email');
+    const user = await this.authService.verifyUserAccount(token);
+    this.logger.log(`user account verified successfully, ${user.id}`);
+    return { message: 'user account verified successfully', data: user };
+  }
 
-    if (
-      existingLock &&
-      existingLock.unlockAt < now &&
-      existingLock.attempts === 3
-    ) {
-      await this.locksService.deactivateLock(existingLock.id);
-    }
-
-    const isMatch = await this.authService.comparePassword(
-      body.password,
-      user.password,
-    );
-    if (!isMatch) {
-      await this.locksService.createUserLock(user.id);
-      throw new BadRequestException('Incorrect password. Please try again.');
-    }
-
-    const tokens = this.authService.generateTokens({
-      email: user.email,
-      userId: user.id,
-    });
-
-    return {
-      message: 'User logged in successfully',
-      data: user,
-      tokens,
-    };
+  @Post('/resend-verify-token/:id')
+  @HttpCode(HttpStatus.OK)
+  async resendEmailVerification(@Param('token') token: string) {
+    this.logger.log('attempting to resend verification mail');
+    const data = await this.authService.resendVerificationMail(token);
+    return { message: 'verification mail sent', data };
   }
 
   @Post('/refresh-token')
   @ApiBadRequestResponse({ description: 'Bad-request - invalid token' })
   @ApiOkResponse({ description: 'tokens refreshed successfully' })
   async refreshToken(@Body() body: RefreshTokenDto) {
-    const payload = this.authService.validateRefreshToken(
-      body.token,
-    );
+    this.logger.log('attempting to refresh user token');
+    const payload = this.authService.validateRefreshToken(body.token);
 
     if (Date.now() >= payload.exp * 1000) {
       throw new BadRequestException('refresh token expired');
