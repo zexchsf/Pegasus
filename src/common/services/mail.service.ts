@@ -20,9 +20,30 @@ export class MailService {
       });
 
       return { success: true };
-    } catch (err) {
-      this.logger.error(err);
+    } catch (error) {
+      this.logger.error(error);
       return { success: false };
     }
+  }
+
+  async sendPasswordResetEmail(email: string, token: string) {
+   try {
+       await this.mailerService.sendMail({
+        to: email,
+        subject: 'Password Reset',
+        template: 'password_reset',
+        context: {
+          email,
+          token
+        },
+      });
+
+      return { success: true };
+
+   } catch (error) {
+      this.logger.error(error);
+      return { success: false };
+
+   } 
   }
 }

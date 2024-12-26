@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { UpdatePasswordDto } from './dto/update-password.dto';
-import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { AuthUser } from '../../common/decorators/auth-user';
 import { User } from '@prisma/client';
 import { AuthService } from '../../auth/auth.service';

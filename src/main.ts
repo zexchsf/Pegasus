@@ -26,9 +26,8 @@ async function bootstrap() {
 
   const config = new DocumentBuilder()
     .setTitle('Pegasus')
-    .setDescription('The Pegasus API Documentation')
+    .setDescription('Pegasus Banking API Documentation')
     .setVersion('1.0')
-    .addTag('users')
     .addBearerAuth({
       type: 'http',
       name: 'authorization',

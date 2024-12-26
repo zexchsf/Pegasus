@@ -7,10 +7,10 @@ import { REFRESH_TOKEN_EXPIRY_TIME } from '../../common/constants';
 export class RefreshTokenService {
   constructor(private readonly prismaService: PrismaService) {}
 
-  async storeRefreshToken(userId: string, token: string) {
+  async saveToken(user_id: string, token: string) {
     return this.prismaService.refreshToken.create({
       data: {
-        userId,
+        user_id,
         token,
         expires_at: dayjs(new Date())
           .add(REFRESH_TOKEN_EXPIRY_TIME)
@@ -26,6 +26,14 @@ export class RefreshTokenService {
       },
       include: {
         user: true,
+      },
+    });
+  }
+
+  async deleteToken(id: string) {
+    return this.prismaService.refreshToken.delete({
+      where: {
+        id,
       },
     });
   }

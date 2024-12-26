@@ -16,5 +16,5 @@ export class CreateLoginAttemptDto {
 
   @IsString()
   @ApiProperty()
-  userId: string;
+  user_id: string;
 }

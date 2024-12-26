@@ -1,4 +1,4 @@
-import { Module, Logger } from '@nestjs/common';
+import { Module, Logger, MiddlewareConsumer } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -10,6 +10,9 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { MailerModule } from '@nestjs-modules/mailer';
 import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handlebars.adapter';
 import { join } from 'path';
+import { BullModule } from '@nestjs/bullmq';
+import { LoggerMiddleware } from './common/middlewares/logger.middleware';
+import { AppLogger } from './common/logger/app.logger';
 
 @Module({
   imports: [
@@ -60,6 +63,10 @@ import { join } from 'path';
     DomainModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, AppLogger],
 })
-export class AppModule {}
+export class AppModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(LoggerMiddleware).forRoutes('*');
+  }
+}

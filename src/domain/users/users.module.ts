@@ -8,6 +8,7 @@ import { RefreshTokenService } from '../refresh-token/refresh-token.service';
 import { LoginAttemptService } from '../login-attempt/login-attempt.service';
 import { MailService } from '../../common/services/mail.service';
 import { UserMapper } from '../../common/mappers/user.mapper';
+import { PasswordResetTokenService } from '../password-reset/password-reset-token.service';
 
 @Module({
   controllers: [UsersController],
@@ -20,6 +21,7 @@ import { UserMapper } from '../../common/mappers/user.mapper';
     LoginAttemptService,
     MailService,
     UserMapper,
+    PasswordResetTokenService
   ],
 })
 export class UsersModule {}

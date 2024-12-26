@@ -2,7 +2,6 @@ import {
   BadRequestException,
   Injectable,
   Logger,
-  UnauthorizedException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { RegisterUserDto } from './dto/register-user.dto';
@@ -11,12 +10,16 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { LoginUserDto } from './dto/login-user.dto';
 import { BcryptHelper } from '../common/helpers/bcrypt.helper';
-import { RefreshTokenService } from '../domain/refresh-token/refresh-token.service';
 import { LoginAttemptService } from '../domain/login-attempt/login-attempt.service';
 import * as crypto from 'node:crypto';
 import { MailService } from '../common/services/mail.service';
 import { UserMapper } from '../common/mappers/user.mapper';
 import dayjs from '../common/helpers/dayjs';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ACCOUNT_EVENTS } from 'src/events';
+import { AccountType } from '@prisma/client';
+import { AccountCreateEvent } from '../events';
+import { PasswordResetTokenService } from '../domain/password-reset/password-reset-token.service';
 
 @Injectable()
 export class AuthService {
@@ -26,25 +29,18 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
-    private readonly refreshTokenService: RefreshTokenService,
     private readonly loginAttemptService: LoginAttemptService,
+    private readonly passwordResetTokenService: PasswordResetTokenService,
     private readonly mailService: MailService,
     private readonly userMapper: UserMapper,
+    private readonly eventEmitter: EventEmitter2,
     private bcryptHelper: BcryptHelper,
-  ) {}
+  ) { }
 
   async registerUser(payload: Omit<RegisterUserDto, 'type'>) {
-    const existingUser = await this.usersService.findByEmail(payload.email);
-    if (existingUser) {
-      throw new UnprocessableEntityException('email address is already in use');
-    }
-
     const hashedPassword = await this.bcryptHelper.hashPassword(
       payload.password,
     );
-
-    const token = crypto.randomBytes(128).toString('hex');
-
     const user = await this.usersService.create({
       data: {
         ...payload,
@@ -52,6 +48,7 @@ export class AuthService {
       },
     });
 
+    const token = crypto.randomBytes(128).toString('hex');
     const { success } = await this.mailService.sendVerificationMail(
       user.email,
       user.first_name,
@@ -60,7 +57,7 @@ export class AuthService {
 
     if (!success) {
       this.logger.error({
-        message: `error sending email verification mail: ${user.email}`,
+        message: `Error sending email verification mail: ${user.email}`,
       });
     }
 
@@ -73,6 +70,14 @@ export class AuthService {
           .toDate(),
       },
     );
+
+    // emit create account event to setup the user first account
+    const eventPayload: AccountCreateEvent = {
+      user_id: user.id,
+      account_type: AccountType.Savings,
+      account_name: `${user.first_name} ${user.middle_name} ${user.last_name}`,
+    };
+    this.eventEmitter.emit(ACCOUNT_EVENTS.ACCOUNT_CREATE, eventPayload);
 
     return this.userMapper.toPublicData(user);
   }
@@ -88,7 +93,7 @@ export class AuthService {
     }
 
     if (!user.verified) {
-      const token = await crypto.randomBytes(128).toString('hex');
+      const token = crypto.randomBytes(128).toString('hex');
 
       await this.mailService.sendVerificationMail(
         user.email,
@@ -104,7 +109,7 @@ export class AuthService {
         },
       );
 
-      throw new UnprocessableEntityException('user account not verified');
+      throw new UnprocessableEntityException('User account not verified');
     }
 
     const isMatch = await this.bcryptHelper.comparePassword(
@@ -114,7 +119,7 @@ export class AuthService {
 
     if (!isMatch) {
       await this.loginAttemptService.createLoginAttempt({
-        userId: user.id,
+        user_id: user.id,
         ip_address,
         user_agent,
         success: false,
@@ -128,7 +133,7 @@ export class AuthService {
     });
 
     await this.loginAttemptService.createLoginAttempt({
-      userId: user.id,
+      user_id: user.id,
       ip_address,
       user_agent,
       success: true,
@@ -143,7 +148,7 @@ export class AuthService {
       throw new UnprocessableEntityException('invalid verification token');
     }
 
-    const newToken = await crypto.randomBytes(128).toString('hex');
+    const newToken = crypto.randomBytes(128).toString('hex');
 
     const { success } = await this.mailService.sendVerificationMail(
       user.email,
@@ -174,20 +179,16 @@ export class AuthService {
     return this.jwtService.sign(payload);
   }
 
-  private generateRefreshToken(paylaod: { email: string; userId: string }) {}
-
-  async generateTokens(payload: { email: string; userId: string }) {
-    const accessToken = this.generateAccessToken(payload);
-
-    const refreshToken = this.jwtService.sign(payload, {
+  private generateRefreshToken(payload: { email: string; userId: string }) {
+    return this.jwtService.sign(payload, {
       secret: this.configService.get('REFRESH_TOKEN_SECRET'),
       expiresIn: '30d',
     });
+  }
 
-    await this.refreshTokenService.storeRefreshToken(
-      payload.userId,
-      refreshToken,
-    );
+  async generateTokens(payload: { email: string; userId: string }) {
+    const accessToken = this.generateAccessToken(payload);
+    const refreshToken = this.generateRefreshToken(payload);
 
     return { accessToken, refreshToken };
   }
@@ -195,13 +196,13 @@ export class AuthService {
   async verifyUserAccount(token: string) {
     const user = await this.usersService.findOne({ verifcation_token: token });
     if (!user) {
-      throw new UnprocessableEntityException('invalid verification token');
+      throw new UnprocessableEntityException('Invalid verification token');
     }
 
     const now = new Date();
 
     if (dayjs(user.verification_token_expires_at).isBefore(now)) {
-      throw new UnprocessableEntityException('verification token has expired');
+      throw new UnprocessableEntityException('Verification token has expired');
     }
 
     await this.usersService.updateOne({ id: user.id }, { verified: true });
@@ -209,16 +210,38 @@ export class AuthService {
     return this.userMapper.toPublicData(user);
   }
 
-  async refreshToken(token: string) {
-    const refreshToken = await this.refreshTokenService.findByToken(token);
-
-    if (!refreshToken) {
-      throw new BadRequestException('invalid refresh token');
+  async sendPasswordResetMail(email: string) {
+    const user = await this.usersService.findByEmail(email);
+    if (!user) {
+      return;
     }
 
-    if (dayjs(new Date()).isAfter(refreshToken.expires_at)) {
-      throw new UnauthorizedException('refresh token has expired');
+    const resetToken = await this.passwordResetTokenService.createToken(
+      user.id,
+    );
+
+    await this.mailService.sendPasswordResetEmail(user.email, resetToken.token);
+
+    // remove expired reset tokens
+    await this.passwordResetTokenService.deleteExpiredTokens();
+  }
+
+  async resetPassword(token: string, password: string) {
+    const resetToken = await this.passwordResetTokenService.findValidToken(
+      token,
+    );
+    if (!resetToken) {
+      throw new BadRequestException('Invalid or expired reset token');
     }
+
+    const hashedPassword = await this.bcryptHelper.hashPassword(password);
+
+    await this.usersService.updateOne(
+      { id: resetToken.user_id },
+      { password: hashedPassword },
+    );
+
+    await this.passwordResetTokenService.markTokenAsUsed(token);
   }
 
   validateRefreshToken(refreshToken: string) {

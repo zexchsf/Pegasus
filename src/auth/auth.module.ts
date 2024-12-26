@@ -9,6 +9,7 @@ import { RefreshTokenService } from '../domain/refresh-token/refresh-token.servi
 import { LoginAttemptService } from '../domain/login-attempt/login-attempt.service';
 import { MailService } from '../common/services/mail.service';
 import { UserMapper } from '../common/mappers/user.mapper';
+import { PasswordResetTokenService } from '../domain/password-reset/password-reset-token.service';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { UserMapper } from '../common/mappers/user.mapper';
     LoginAttemptService,
     MailService,
     UserMapper,
+    PasswordResetTokenService,
   ],
   exports: [AuthService, UsersService],
 })

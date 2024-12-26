@@ -8,22 +8,24 @@ datasource db {
 }
 
 model User {
-  id                            String         @id @default(uuid())
-  email                         String         @unique
+  id                            String               @id @default(uuid())
+  email                         String               @unique
   password                      String
   first_name                    String
   last_name                     String
   middle_name                   String
   date_of_birth                 DateTime
   address                       String?
-  verified                      Boolean        @default(false)
+  verified                      Boolean              @default(false)
   verifcation_token             String?
   verification_token_expires_at DateTime?
   mobile_number                 String
-  created_at                    DateTime       @default(now())
-  updated_at                    DateTime       @updatedAt
+  created_at                    DateTime             @default(now())
+  updated_at                    DateTime             @updatedAt
   refresh_token                 RefreshToken[]
   login_attempts                LoginAttempt[]
+  Account                       Account[]
+  PasswordResetToken            PasswordResetToken[]
 }
 
 model RefreshToken {
@@ -31,8 +33,18 @@ model RefreshToken {
   token      String
   created_at DateTime @default(now())
   expires_at DateTime
-  user       User     @relation(fields: [userId], references: [id])
-  userId     String
+  user       User     @relation(fields: [user_id], references: [id])
+  user_id    String
+}
+
+model PasswordResetToken {
+  id         String   @id @default(uuid())
+  token      String
+  user       User     @relation(fields: [user_id], references: [id])
+  user_id    String
+  expires_at DateTime
+  used       Boolean
+  created_at DateTime @default(now())
 }
 
 model LoginAttempt {
@@ -41,6 +53,50 @@ model LoginAttempt {
   user_agent String
   success    Boolean
   created_at DateTime @default(now())
-  user       User     @relation(fields: [userId], references: [id])
-  userId     String
+  user       User     @relation(fields: [user_id], references: [id])
+  user_id    String
+}
+
+enum AccountType {
+  Savings
+  Checking
+  Current
+  Salary
+}
+
+enum AccountStatus {
+  ACTIVE
+  CLOSED
+  SUSPENDED
+}
+
+model Account {
+  id                String        @id @default(uuid())
+  account_name      String
+  account_number    String
+  account_type      AccountType   @default(Savings)
+  balance           Float         @default(0.0)
+  available_balance Float         @default(0.0)
+  currency_code     String        @default("NGN")
+  status            AccountStatus @default(ACTIVE)
+
+  user_id String
+  user    User   @relation(fields: [user_id], references: [id])
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  Pin        Pin?
+}
+
+model Pin {
+  id                  String    @id @default(uuid())
+  hash                Bytes
+  salt                Bytes
+  failed_attempts     Int       @default(0)
+  last_failed_attempt DateTime?
+  is_locked           Boolean   @default(false)
+  account_id          String    @unique
+  account             Account   @relation(fields: [account_id], references: [id])
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
 }
